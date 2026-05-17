@@ -8,6 +8,11 @@ const {
     getBundledBinaryResourceDir,
     pickBinaryAssetForPlatform,
 } = require('./localInferenceAssets');
+const {
+    parseGenerationProgressChunk,
+    resolveGenerationSteps,
+    resolveGuidanceScale,
+} = require('./localInferenceRuntime');
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
 const DATA_DIR = path.join(app.getPath('userData'), 'local-ai');
@@ -414,8 +419,8 @@ async function generate(params, mainWindow) {
     const seed = params.seed && params.seed !== -1 ? params.seed : Math.floor(Math.random() * 2147483647);
     const outPath = path.join(TMP_DIR, `gen-${Date.now()}.png`);
 
-    const steps = model.defaultSteps || params.steps || 20;
-    const cfgScale = model.defaultGuidance !== undefined ? model.defaultGuidance : (params.guidance_scale || 7.5);
+    const steps = resolveGenerationSteps(params, model);
+    const cfgScale = resolveGuidanceScale(params, model);
     const sampler = model.sampler || 'euler_a';
 
     // z-image GGUFs are standalone diffusion transformers loaded via --diffusion-model.
@@ -456,23 +461,21 @@ async function generate(params, mainWindow) {
     }
 
     return new Promise((resolve, reject) => {
-        send({ step: 0, totalSteps: params.steps || model.defaultSteps || 20, status: 'starting' });
+        send({ step: 0, totalSteps: steps, status: 'starting', progress: 0 });
 
         console.log('[sd-cli] command:', BINARY_PATH, args.join(' '));
         // DYLD_LIBRARY_PATH lets macOS find libstable-diffusion.dylib next to sd-cli
         const spawnEnv = { ...process.env, DYLD_LIBRARY_PATH: BIN_DIR, LD_LIBRARY_PATH: BIN_DIR };
         activeProcess = spawn(BINARY_PATH, args, { env: spawnEnv });
-        const stepRegex = /step\s+(\d+)\/(\d+)/i;
+        const progressState = { tail: '', lastStep: 0, lastTotalSteps: 0 };
         const outputLines = [];
 
         const handleOutput = (data) => {
             const line = data.toString();
             outputLines.push(line.trimEnd());
-            const match = line.match(stepRegex);
-            if (match) {
-                const step = parseInt(match[1]);
-                const total = parseInt(match[2]);
-                send({ step, totalSteps: total, status: 'generating', progress: step / total });
+            const progressEvents = parseGenerationProgressChunk(line, progressState);
+            for (const event of progressEvents) {
+                send({ ...event, status: 'generating' });
             }
         };
 
@@ -496,7 +499,7 @@ async function generate(params, mainWindow) {
                 const imgBuffer = fs.readFileSync(outPath);
                 const dataUrl = `data:image/png;base64,${imgBuffer.toString('base64')}`;
                 fs.unlinkSync(outPath);
-                send({ step: 1, totalSteps: 1, status: 'done', progress: 1 });
+                send({ step: steps, totalSteps: steps, status: 'done', progress: 1 });
                 resolve({ url: dataUrl, seed });
             } catch (err) {
                 reject(err);
@@ -534,4 +537,6 @@ function register() {
     ipcMain.handle('local-ai:cancel-generation', () => cancelGeneration());
 }
 
-module.exports = { register };
+module.exports = {
+    register,
+};
