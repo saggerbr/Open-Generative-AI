@@ -677,3 +677,22 @@ export async function runClipping(apiKey, params) {
     };
     return submitAndPoll("ai-clipping", payload, apiKey, params.onRequestId, 900);
 }
+
+export async function runMotionGraphics(apiKey, params) {
+    const payload = {
+        prompt: params.prompt,
+        aspect_ratio: params.aspect_ratio || "16:9",
+        duration_seconds: params.duration_seconds || 6,
+    };
+    return submitAndPoll("motion-graphics", payload, apiKey, params.onRequestId, 900);
+}
+
+export async function runMotionGraphicsEdit(apiKey, params) {
+    const payload = {
+        request_id: params.request_id,
+        edit_prompt: params.edit_prompt,
+        aspect_ratio: params.aspect_ratio || "16:9",
+        duration_seconds: params.duration_seconds || 6,
+    };
+    return submitAndPoll("motion-graphics-edit", payload, apiKey, params.onRequestId, 900);
+}
